@@ -22,7 +22,14 @@ namespace ReflectionUtilities
             MethodInfo mi = typeof (TType).GetInfo(name, parameters);
             if (mi != null)
             {
-                mi.Invoke(obj, parameters);
+                if (!mi.IsGenericMethod)
+                    mi.Invoke(obj, parameters);
+                else
+                {
+                    Type[] types = parameters.Select(p => p.GetType()).ToArray();
+                    MethodInfo generic = mi.MakeGenericMethod(types);
+                    generic.Invoke(obj, parameters);
+                }
                 return;
             }
 
@@ -33,7 +40,14 @@ namespace ReflectionUtilities
         {
             MethodInfo mi = typeof (TType).GetInfo(name, parameters);
             if (mi != null)
-                return (TResult) mi.Invoke(obj, parameters);
+                if (!mi.IsGenericMethod)
+                    return (TResult) mi.Invoke(obj, parameters);
+                else
+                {
+                    Type[] types = parameters.Select(p => p.GetType()).ToArray();
+                    MethodInfo generic = mi.MakeGenericMethod(types);
+                    return (TResult) generic.Invoke(obj, parameters);
+                }
 
             throw new ArgumentException(string.Format("The member '{0}' is not a method.", name));
         }
@@ -68,11 +82,45 @@ namespace ReflectionUtilities
 
         public static MethodInfo GetInfo(this Type type, string name, params object[] parameters)
         {
+            MethodInfo result = null;
+
+            #region non-generic
+
+            #region w/o parameters
+
             if (parameters.Length == 0)
-                return type.GetMethod(name, new Type[] {});
+            {
+                result = type.GetMethod(name, new Type[] {});
+                if (result != null)
+                    return result;
+            }
+
+            #endregion
+
+            #region w/ parameters
 
             Type[] types = parameters.Select(p => p.GetType()).ToArray();
-            return type.GetMethod(name, types);
+            result = type.GetMethod(name, types);
+
+            if (result != null) return result;
+
+            #endregion
+
+            #endregion
+
+            #region generic
+
+            MethodInfo method = type.GetMember(name)
+                .Where(info => info.MemberType == MemberTypes.Method
+                               && ((MethodInfo) info).IsGenericMethod
+                    // for generic method check only the number of parameters --> it should be equal to method generic parameters
+                               && ((MethodInfo) info).GetParameters().Length == types.Length)
+                .Select(info => (MethodInfo) info)
+                .SingleOrDefault();
+
+            return method;
+
+            #endregion
         }
 
         #endregion
